@@ -1,53 +1,23 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
+# Victory Skill
 
 > [English](README.md) | [简体中文](README.zh-CN.md)
 
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-</p>
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+Victory Skill is an experimental Skill router that deterministically selects relevant Skills before the first chat-model request, then injects their complete `SKILL.md` bodies directly.
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+It replaces the native path where a chat model reads a Skill catalogue, decides which Skill to use, and makes a separate tool call to load the file.
 
----
-
-# Pi Agent Harness Mono Repo
-
-This is the home of the pi agent harness project including our self extensible coding agent.
-
-* **[@earendil-works/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@earendil-works/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
-* **[@earendil-works/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
-
-To learn more about pi:
-
-* [Visit pi.dev](https://pi.dev), the project website with demos
-* [Read the documentation](https://pi.dev/docs/latest), but you can also ask the agent to explain itself
-
-## Victory Skill Routing
-
-Victory Skill Routing is an experimental progressive-loading path for Pi Skills. Its objective is to inject the complete `SKILL.md` before the first chat-model request without asking that model to select a skill and then call a tool to read it.
-
-### Design
+## Routing Design
 
 ```text
 user query
   -> embed query and one compact routing entry per visible Skill
-  -> retain every candidate at the embedding threshold
+  -> retain candidates at the embedding threshold
   -> optional local cross-encoder rerank
   -> inject each surviving complete SKILL.md
   -> first chat-model request
 ```
 
-The embedding entry is deliberately short and authored rather than generated. It consists of a Skill name, its required description, and optional routing metadata. The Markdown body, code blocks, examples, and procedural branches are not embedded; they are instruction content, not reliable task identifiers.
+Each Skill has one short, author-maintained routing entry. It contains its name, required `description`, and optional routing metadata. The complete Markdown body is only used after a match: instructions, code blocks, examples, and procedural branches are not reliable retrieval text.
 
 ```yaml
 ---
@@ -56,8 +26,8 @@ description: Translate supplied Figma designs into production-ready application 
 metadata:
   routing:
     use_cases:
-      - 把提供的 Figma 设计稿实现为现有项目中的响应式页面。
-      - 读取 Figma 变量和组件状态，完成像素级 UI 还原。
+      - Implement a supplied Figma file as a responsive page in an existing project.
+      - Match Figma variables and component states in production UI code.
     tags:
       - Figma
       - design file
@@ -66,33 +36,44 @@ metadata:
 ---
 ```
 
-`use_cases` should be short task statements. `tags` should identify concrete platforms, artifacts, entities, or output types. Existing Skills without this metadata still route on their description.
+`use_cases` are short user-task statements. `tags` identify concrete platforms, artifacts, entities, or output types. Skills without this metadata remain routable through `description` alone.
 
-The native baseline remains available. It exposes the complete Skill catalogue to the chat model and relies on the model to decide whether to read a matching file. The embedding path trades some selection quality for a predictable pre-chat retrieval path and no model-initiated Skill-read tool call.
+## Design Decisions
 
-### Iteration Evidence
+- No generated routing cards: routing text is visible, versioned, and maintained by Skill authors.
+- No body-segment max pooling: generic procedural prose produced false positives.
+- No automatic Top-K limit: compound requests may legitimately require multiple Skills.
+- Complete `SKILL.md` is injected only after matching, so no chat-model-initiated Skill-read tool call is needed.
+- Rerank receives compact routing entries, never complete Skill bodies.
 
-All figures below are retrieval-label metrics, not claims of end-to-end task success. Precision is expected Skill labels divided by injected labels; recall is expected labels retained by routing. The UDA embedding model was `text-embedding-v4`. The reproducible fixtures and runner are under [`packages/coding-agent/test/fixtures`](packages/coding-agent/test/fixtures) and [`packages/coding-agent/scripts/benchmark-skill-routing.ts`](packages/coding-agent/scripts/benchmark-skill-routing.ts).
+## Evaluation
 
-#### 1. Public description-only corpus
+All values are retrieval-label metrics, not end-to-end task-success claims. Precision is expected labels divided by injected labels; recall is expected labels retained by routing. The embedding model was `text-embedding-v4`.
 
-An 80-Skill corpus of public descriptions plus eight compound prompts established the initial threshold baseline. At an embedding threshold of `0.5`, it produced:
+### Description-Only Baseline
+
+An 80-Skill public-description corpus with eight compound prompts established the initial baseline at embedding threshold `0.5`.
 
 | Recall | Precision | Average candidates | Maximum candidates | Zero-match cases |
 |---:|---:|---:|---:|---:|
 | 61.46% | 18.15% | 3.69 | 42 | 27 |
 
-This showed that a low global threshold over generic descriptions causes excessive injection. The corpus cannot evaluate body routing or author metadata because it intentionally does not redistribute third-party Skill bodies.
+The low precision showed that generic descriptions plus a low global threshold over-inject Skills.
 
-#### 2. Rejected body-segment routing
+### Rejected Body Routing
 
-An exploratory corpus of 12 installed Codex Skills and six Chinese prompts compared description-only routing with the maximum score across selected Markdown body segments. At `0.5`, description-only precision/recall was `55.56% / 83.33%`; body-segment routing was `50.00% / 83.33%`.
+An exploratory set of 12 installed Skills and six Chinese prompts compared description-only routing with maximum scoring Markdown body segments at `0.5`.
 
-The body did not improve expected-Skill scores and created additional false positives through generic procedural language. This experiment led to the current rule: full `SKILL.md` is injected after a match, but not embedded for matching.
+| Routing input | Recall | Precision |
+|---|---:|---:|
+| Description only | 83.33% | 55.56% |
+| Markdown body segments | 83.33% | 50.00% |
 
-#### 3. Author-maintained metadata routing
+Body segments did not recover expected Skills and added false positives, so they are not part of the routing input.
 
-The owned Chinese fixture contains 12 Skills and 14 single/compound prompts. Each Skill provides explicit `use_cases` and `tags`. The same fixture can be run in `description` mode, which ignores its routing metadata, or `metadata` mode.
+### Author-Maintained Metadata
+
+The owned Chinese fixture contains 12 Skills and 14 single or compound prompts. `description` ignores routing metadata; `metadata` includes `use_cases` and `tags`.
 
 | Embedding threshold | Input | Recall | Precision | Average candidates | Zero-match cases |
 |---:|---|---:|---:|---:|---:|
@@ -103,80 +84,36 @@ The owned Chinese fixture contains 12 Skills and 14 single/compound prompts. Eac
 | 0.60 | description | 25.00% | 57.14% | 0.50 | 10 |
 | 0.60 | metadata | 62.50% | 62.50% | 1.14 | 5 |
 
-`0.55` is the best observed balance in this small corpus: the authored metadata raises both recall and precision over description-only input. It is an evaluation point, not a universal default.
+### Local Rerank
 
-The native selection baseline on this exact fixture returned `100%` precision and recall in `6.35s`. It is a selection-only chat-model benchmark with unambiguous prompts, not an end-to-end comparison. It does not remove the native runtime's later model-initiated Skill-read call.
+The local `BAAI/bge-reranker-v2-m3` endpoint reranks embedding candidates with query-routing-entry pairs. At an embedding threshold of `0.45`, it retains every expected label in this fixture while keeping the first-stage candidate pool suitable for local inference.
 
-#### 4. Local rerank experiment
+| Embedding threshold | Rerank cutoff | Recall | Precision | Final average candidates |
+|---:|---:|---:|---:|---:|
+| 0.45 | none | 100.00% | 27.12% | 4.21 |
+| 0.45 | 0.01 | 100.00% | 80.00% | 1.43 |
+| 0.45 | 0.05 | 93.75% | 83.33% | 1.29 |
+| 0.45 | 0.10 | 87.50% | 93.33% | 1.07 |
 
-The local `BAAI/bge-reranker-v2-m3` endpoint at `127.0.0.1:8088/v1/rerank` reranked the `0.5` metadata candidates using the same compact routing entries. It does not receive full Skill bodies.
+The current experimental starting point is `embedding 0.45 -> rerank 0.01`. It is not a universal default and needs validation on a larger, real query corpus. The reranker took `1.19s` on its first request and about `101ms` warm for five candidates on Apple MPS.
 
-| Embedding threshold | Rerank cutoff | Recall | Precision | Average candidates | Zero-match cases |
-|---:|---:|---:|---:|---:|---:|
-| 0.50 | none | 93.75% | 46.88% | 2.29 | 1 |
-| 0.50 | 0.10 | 81.25% | 92.86% | 1.00 | 2 |
-| 0.50 | 0.30 | 75.00% | 100.00% | 0.86 | 2 |
+## Native Baseline
 
-The reranker took `1.19s` on the first request and about `101ms` per warm request for five candidates on Apple MPS. The proposed starting configuration is embedding `0.5` followed by rerank `0.1`: it more than doubles measured precision while preserving 81.25% recall. Rerank should remain optional and configurable because the corpus is intentionally small.
+On the same 12-Skill fixture, a chat-model selection baseline returned 100% precision and recall in `6.35s`. This measures only explicit selection from an unambiguous catalogue; it is not an end-to-end comparison and does not remove the native path's later Skill-read call.
 
-### Reproducing The Benchmarks
+## Reproduce
 
-Set the endpoint and credentials through environment variables; do not add credentials to the repository. The detailed commands and output schema are in [`packages/coding-agent/docs/skill-routing-benchmark.md`](packages/coding-agent/docs/skill-routing-benchmark.md).
+Fixtures are in [`packages/coding-agent/test/fixtures`](packages/coding-agent/test/fixtures). The benchmark runner is [`packages/coding-agent/scripts/benchmark-skill-routing.ts`](packages/coding-agent/scripts/benchmark-skill-routing.ts). Commands, input modes, and result schema are documented in [`packages/coding-agent/docs/skill-routing-benchmark.md`](packages/coding-agent/docs/skill-routing-benchmark.md).
 
-## Share your OSS coding agent sessions
+Provide endpoints and credentials through environment variables only. Do not add credentials to repository files or fixtures.
 
-If you use pi or other coding agents for open source work, please share your sessions.
+## Security Status
 
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
+A current-tree pattern scan found only Google Vertex-shaped strings in API-key resolution test fixtures. No common OpenAI, GitHub, AWS, Slack, or Hugging Face key pattern was found in tracked files. GitHub Secret Scanning is currently disabled for this repository, so it should be enabled before relying on platform-side alerts.
 
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
+## Status
 
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
-
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
-
-I regularly publish my own `pi-mono` work sessions here:
-
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
-
-## All Packages
-
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
-
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).
-
-## Development
-
-```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build        # Build all packages
-npm run check        # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
-```
-
-## Supply-chain hardening
-
-We treat npm dependency changes as reviewed code changes.
-
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent shrinkwrap.
-- The published CLI package includes `packages/coding-agent/npm-shrinkwrap.json`, generated from the root lockfile, to pin transitive deps for npm users.
-- Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before publishing.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Shrinkwrap generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
+The metadata routing path and its benchmark suite are implemented. The local reranker has been benchmarked but is not yet wired into the runtime path.
 
 ## License
 
