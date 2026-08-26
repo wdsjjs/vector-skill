@@ -67,13 +67,21 @@ function addIgnoreRules(ig: IgnoreMatcher, dir: string, rootDir: string): void {
 export interface SkillFrontmatter {
 	name?: string;
 	description?: string;
+	metadata?: unknown;
 	"disable-model-invocation"?: boolean;
 	[key: string]: unknown;
+}
+
+export interface SkillRoutingMetadata {
+	useCases: string[];
+	tags: string[];
 }
 
 export interface Skill {
 	name: string;
 	description: string;
+	/** Author-maintained capability terms used by embedding routing. */
+	routing?: SkillRoutingMetadata;
 	filePath: string;
 	baseDir: string;
 	sourceInfo: SourceInfo;
@@ -124,6 +132,51 @@ function validateDescription(description: string | undefined): string[] {
 	}
 
 	return errors;
+}
+
+export function buildSkillRoutingInput(skill: Pick<Skill, "name" | "description" | "routing">): string {
+	const lines = [`Skill: ${skill.name}`, `Description: ${skill.description.trim()}`];
+	if (skill.routing?.useCases.length) {
+		lines.push("Use cases:", ...skill.routing.useCases.map((useCase) => `- ${useCase}`));
+	}
+	if (skill.routing?.tags.length) {
+		lines.push(`Tags: ${skill.routing.tags.join(", ")}`);
+	}
+	return lines.join("\n");
+}
+
+function parseRoutingMetadata(
+	metadata: unknown,
+	filePath: string,
+	diagnostics: ResourceDiagnostic[],
+): SkillRoutingMetadata | undefined {
+	if (!isRecord(metadata) || metadata.routing === undefined) return undefined;
+	if (!isRecord(metadata.routing)) {
+		diagnostics.push({ type: "warning", message: "metadata.routing must be a mapping", path: filePath });
+		return undefined;
+	}
+
+	const useCases = parseRoutingList(metadata.routing.use_cases, "metadata.routing.use_cases", filePath, diagnostics);
+	const tags = parseRoutingList(metadata.routing.tags, "metadata.routing.tags", filePath, diagnostics);
+	return useCases.length > 0 || tags.length > 0 ? { useCases, tags } : undefined;
+}
+
+function parseRoutingList(
+	value: unknown,
+	field: string,
+	filePath: string,
+	diagnostics: ResourceDiagnostic[],
+): string[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.trim() === "")) {
+		diagnostics.push({ type: "warning", message: `${field} must be a list of non-empty strings`, path: filePath });
+		return [];
+	}
+	return Array.from(new Set(value.map((item) => item.trim())));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export interface LoadSkillsFromDirOptions {
@@ -310,6 +363,7 @@ function loadSkillFromFile(
 			skill: {
 				name,
 				description: frontmatter.description,
+				routing: parseRoutingMetadata(frontmatter.metadata, filePath, diagnostics),
 				filePath,
 				baseDir: skillDir,
 				sourceInfo: createSkillSourceInfo(filePath, skillDir, source),

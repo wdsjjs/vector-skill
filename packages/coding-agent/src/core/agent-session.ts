@@ -85,6 +85,8 @@ import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.t
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
+import { SkillRouter } from "./skill-router.ts";
+import type { Skill } from "./skills.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
@@ -315,6 +317,7 @@ export class AgentSession {
 	// Base system prompt (without extension appends) - used to apply fresh appends each turn
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
+	private _skillRouter = new SkillRouter();
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -900,7 +903,7 @@ export class AgentSession {
 
 		this._baseSystemPromptOptions = {
 			cwd: this._cwd,
-			skills: loadedSkills,
+			skills: this.settingsManager.getSkillRoutingSettings() ? [] : loadedSkills,
 			contextFiles: loadedContextFiles,
 			customPrompt: loaderSystemPrompt,
 			appendSystemPrompt,
@@ -1001,6 +1004,7 @@ export class AgentSession {
 				expandedText = this._expandSkillCommand(expandedText);
 				expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 			}
+			expandedText = await this._autoLoadMatchingSkill(expandedText);
 
 			// If streaming, queue via steer() or followUp() based on option
 			if (this.isStreaming) {
@@ -1156,9 +1160,7 @@ export class AgentSession {
 		if (!skill) return text; // Unknown skill, pass through
 
 		try {
-			const content = readFileSync(skill.filePath, "utf-8");
-			const body = stripFrontmatter(content).trim();
-			const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
+			const skillBlock = this._loadSkillBlock(skill);
 			return args ? `${skillBlock}\n\n${args}` : skillBlock;
 		} catch (err) {
 			// Emit error like extension commands do
@@ -1169,6 +1171,58 @@ export class AgentSession {
 			});
 			return text; // Return original on error
 		}
+	}
+
+	private async _autoLoadMatchingSkill(text: string): Promise<string> {
+		if (text.startsWith("<skill ")) return text;
+
+		const settings = this.settingsManager.getSkillRoutingSettings();
+		if (!settings || !this.model) return text;
+
+		const providerModel = settings.provider
+			? this._modelRegistry.getAll().find((model) => model.provider === settings.provider)
+			: this.model;
+		if (!providerModel) {
+			this._extensionRunner.emitError({
+				extensionPath: "<skill-routing>",
+				event: "skill_routing",
+				error: `No configured model found for skill routing provider "${settings.provider}"`,
+			});
+			return text;
+		}
+
+		try {
+			const auth = await this._modelRegistry.getApiKeyAndHeaders(providerModel);
+			if (!auth.ok) throw new Error(auth.error);
+
+			const matches = await this._skillRouter.route(
+				text,
+				this._resourceLoader.getSkills().skills,
+				{
+					baseUrl: providerModel.baseUrl,
+					model: settings.embeddingModel,
+					apiKey: auth.apiKey,
+					headers: auth.headers,
+					batchSize: settings.embeddingBatchSize,
+				},
+				settings.minimumSimilarity,
+			);
+			if (matches.length === 0) return text;
+			return `${matches.map((match) => this._loadSkillBlock(match.skill)).join("\n\n")}\n\n${text}`;
+		} catch (error) {
+			this._extensionRunner.emitError({
+				extensionPath: "<skill-routing>",
+				event: "skill_routing",
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return text;
+		}
+	}
+
+	private _loadSkillBlock(skill: Skill): string {
+		const content = readFileSync(skill.filePath, "utf-8");
+		const body = stripFrontmatter(content).trim();
+		return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
 	}
 
 	/**

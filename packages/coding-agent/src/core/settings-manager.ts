@@ -57,6 +57,19 @@ export interface WarningSettings {
 	anthropicExtraUsage?: boolean; // default: true
 }
 
+export interface SkillRoutingSettings {
+	/** Native keeps the full catalogue in the system prompt; embedding auto-loads the closest skill. */
+	mode?: "native" | "embedding";
+	/** OpenAI-compatible embedding model ID. Set this to enable automatic skill routing. */
+	embeddingModel?: string;
+	/** Provider from models.json. Defaults to the active chat model's provider. */
+	provider?: string;
+	/** Maximum number of skill descriptions per embedding request. Default: 10. */
+	embeddingBatchSize?: number;
+	/** Minimum cosine similarity required before a skill is injected. Default: 0.6. */
+	minimumSimilarity?: number;
+}
+
 export type TransportSetting = Transport;
 
 /**
@@ -110,6 +123,7 @@ export interface Settings {
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
+	skillRouting?: SkillRoutingSettings;
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
 }
@@ -907,6 +921,40 @@ export class SettingsManager {
 
 	getEnableSkillCommands(): boolean {
 		return this.settings.enableSkillCommands ?? true;
+	}
+
+	getSkillRoutingSettings():
+		| (Required<Pick<SkillRoutingSettings, "embeddingModel" | "embeddingBatchSize" | "minimumSimilarity">> & {
+				provider?: string;
+		  })
+		| undefined {
+		const settings = this.settings.skillRouting;
+		const mode = settings?.mode;
+		if (mode !== undefined && mode !== "native" && mode !== "embedding") {
+			throw new Error(`Invalid skillRouting.mode: ${String(mode)}`);
+		}
+		if (mode === "native") return undefined;
+
+		const embeddingModel = settings?.embeddingModel?.trim();
+		if (!embeddingModel) {
+			if (mode === "embedding") {
+				throw new Error("skillRouting.embeddingModel is required when skillRouting.mode is embedding");
+			}
+			return undefined;
+		}
+
+		const embeddingBatchSize = settings?.embeddingBatchSize ?? 10;
+		if (!Number.isInteger(embeddingBatchSize) || embeddingBatchSize < 1) {
+			throw new Error(`Invalid skillRouting.embeddingBatchSize: ${String(embeddingBatchSize)}`);
+		}
+
+		const minimumSimilarity = settings?.minimumSimilarity ?? 0.6;
+		if (!Number.isFinite(minimumSimilarity) || minimumSimilarity < -1 || minimumSimilarity > 1) {
+			throw new Error(`Invalid skillRouting.minimumSimilarity: ${String(minimumSimilarity)}`);
+		}
+
+		const provider = settings?.provider?.trim();
+		return { embeddingModel, embeddingBatchSize, minimumSimilarity, provider: provider || undefined };
 	}
 
 	setEnableSkillCommands(enabled: boolean): void {

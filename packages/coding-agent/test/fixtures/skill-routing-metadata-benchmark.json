@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "sources": {
+    "victory": "Author-maintained routing metadata for a representative Chinese skill catalogue."
+  },
+  "skills": [
+    {
+      "id": "victory:pdf",
+      "source": "victory",
+      "description": "Read, create, inspect, render, and verify PDF files where visual layout matters.",
+      "routing": {
+        "useCases": ["从 PDF 合同提取表格、文本或表单字段。", "渲染并检查 PDF 页面排版和视觉效果。"],
+        "tags": ["PDF", "合同", "表格", "表单", "页面排版"]
+      },
+      "triggerPrompt": "把这份 PDF 合同里的表格提取出来，并检查页面排版。"
+    },
+    {
+      "id": "victory:drawio",
+      "source": "victory",
+      "description": "Create and edit draw.io diagrams, flowcharts, architecture diagrams, and process diagrams.",
+      "routing": {
+        "useCases": ["绘制系统架构图、业务流程图或 draw.io 图文件。", "把文字方案整理成可编辑的 draw.io 图。"],
+        "tags": ["draw.io", "架构图", "流程图", "图表"]
+      },
+      "triggerPrompt": "根据这段服务说明画一个可编辑的 draw.io 架构图。"
+    },
+    {
+      "id": "victory:lark-calendar",
+      "source": "victory",
+      "description": "Manage Feishu calendars, events, attendees, availability, meeting rooms, and schedules.",
+      "routing": {
+        "useCases": ["查询飞书日程和参会人空闲时间。", "创建、修改日历会议或预订会议室。"],
+        "tags": ["飞书日历", "日程", "会议", "空闲时间", "会议室"]
+      },
+      "triggerPrompt": "查一下明天下午团队的空闲时间，创建一个飞书会议并订会议室。"
+    },
+    {
+      "id": "victory:lark-doc",
+      "source": "victory",
+      "description": "Read, create, and edit Feishu documents, Wiki pages, and document attachments.",
+      "routing": {
+        "useCases": ["读取、创建或修改飞书文档和知识库页面。", "根据飞书文档链接更新正文、插入内容或附件。"],
+        "tags": ["飞书文档", "Docx", "Wiki", "知识库", "文档链接"]
+      },
+      "triggerPrompt": "读取这个飞书文档链接，把决策记录补充到正文里。"
+    },
+    {
+      "id": "victory:lark-mail",
+      "source": "victory",
+      "description": "Draft, send, reply to, forward, read, and search Feishu email.",
+      "routing": {
+        "useCases": ["起草、发送、回复、转发或搜索飞书邮箱邮件。", "管理邮件草稿、文件夹和邮件标签。"],
+        "tags": ["飞书邮箱", "邮件", "草稿", "回复", "转发"]
+      },
+      "triggerPrompt": "给供应商起草一封飞书邮件，说明延期原因并请求确认。"
+    },
+    {
+      "id": "victory:lark-sheets",
+      "source": "victory",
+      "description": "Create and operate Feishu spreadsheets, worksheets, cells, formulas, styles, comments, and exports.",
+      "routing": {
+        "useCases": ["创建或编辑飞书电子表格，读写单元格和公式。", "整理工作表、计算汇总公式并导出表格。"],
+        "tags": ["飞书表格", "电子表格", "公式", "单元格", "工作表"]
+      },
+      "triggerPrompt": "在这个飞书电子表格新增汇总公式，并把结果导出。"
+    },
+    {
+      "id": "victory:figma-implement-design",
+      "source": "victory",
+      "description": "Translate supplied Figma designs into production-ready application code with visual fidelity.",
+      "routing": {
+        "useCases": ["把提供的 Figma 设计稿实现为现有项目中的响应式页面。", "读取 Figma 变量和组件状态，完成像素级 UI 还原。"],
+        "tags": ["Figma", "设计稿", "React", "前端页面", "响应式 UI"]
+      },
+      "triggerPrompt": "按照这个 Figma 设计稿把设置页实现到 React 项目中。"
+    },
+    {
+      "id": "victory:interview",
+      "source": "victory",
+      "description": "Prepare for technical interviews from a resume, target role, claims, and follow-up questions.",
+      "routing": {
+        "useCases": ["根据简历和目标岗位预测技术面试问题。", "围绕项目经历进行追问演练并发现知识缺口。"],
+        "tags": ["技术面试", "简历", "岗位", "追问", "项目经历"]
+      },
+      "triggerPrompt": "根据我的简历和后端岗位，帮我做一轮技术面试追问。"
+    },
+    {
+      "id": "victory:playwright",
+      "source": "victory",
+      "description": "Automate real browsers for navigation, inspection, interaction, and end-to-end testing with Playwright.",
+      "routing": {
+        "useCases": ["用 Playwright 自动化浏览器操作并复现网页问题。", "编写端到端测试，验证页面交互和回归。"],
+        "tags": ["Playwright", "浏览器自动化", "端到端测试", "E2E", "网页回归"]
+      },
+      "triggerPrompt": "用 Playwright 复现结算页报错，并加一条端到端回归测试。"
+    },
+    {
+      "id": "victory:skill-creator",
+      "source": "victory",
+      "description": "Create or update a Codex skill with scoped instructions, resources, and validation.",
+      "routing": {
+        "useCases": ["创建或维护一个可复用的 Codex Skill。", "为具体工作流编写 SKILL.md、资源和验证步骤。"],
+        "tags": ["Codex Skill", "SKILL.md", "技能", "工作流"]
+      },
+      "triggerPrompt": "帮我创建一个用于 Terraform 审查的 Codex Skill。"
+    },
+    {
+      "id": "victory:plugin-creator",
+      "source": "victory",
+      "description": "Create and scaffold Codex plugin directories that bundle skills, MCP servers, and apps.",
+      "routing": {
+        "useCases": ["创建 Codex 插件并打包 Skill、MCP 服务或应用。", "生成插件目录、manifest 和发布所需配置。"],
+        "tags": ["Codex 插件", "plugin", "MCP", "manifest", "插件目录"]
+      },
+      "triggerPrompt": "创建一个 Codex 插件，把这个 Skill 和 MCP 服务一起打包。"
+    },
+    {
+      "id": "victory:spreadsheets",
+      "source": "victory",
+      "description": "Create, edit, analyze, and verify standalone spreadsheet files and workbooks.",
+      "routing": {
+        "useCases": ["创建、分析、修改或校验 Excel 工作簿和表格文件。", "整理数据、添加公式并检查电子表格结果。"],
+        "tags": ["Excel", "XLSX", "工作簿", "电子表格", "公式"]
+      },
+      "triggerPrompt": "分析这个 XLSX 销售工作簿，新增汇总公式并检查结果。"
+    }
+  ],
+  "compoundCases": [
+    {
+      "id": "compound:figma-playwright",
+      "prompt": "按 Figma 设计稿实现登录页，再用 Playwright 编写浏览器回归测试。",
+      "expected": ["victory:figma-implement-design", "victory:playwright"]
+    },
+    {
+      "id": "compound:calendar-doc",
+      "prompt": "创建飞书会议，然后把会议安排写入飞书文档。",
+      "expected": ["victory:lark-calendar", "victory:lark-doc"]
+    }
+  ]
+}

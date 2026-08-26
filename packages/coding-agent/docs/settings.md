@@ -202,6 +202,42 @@ Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent`. Paths in
 | `themes` | string[] | `[]` | Local theme file paths or directories |
 | `enableSkillCommands` | boolean | `true` | Register skills as `/skill:name` commands |
 
+### Skill Routing
+
+`skillRouting.mode` selects the routing strategy. `native` keeps the full skill catalogue in the system prompt and the chat model reads matching skills itself. `embedding` uses the OpenAI-compatible `/embeddings` endpoint of a configured provider to score one compact, author-maintained routing entry for each `SKILL.md`: its description and optional `metadata.routing` fields. Every matching skill's complete body is injected before the chat model starts. Pi does not apply a Top-K limit; `minimumSimilarity` is the only automatic-injection gate. Pi reuses provider endpoint and credentials from `models.json`; do not put API keys in `settings.json`.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `skillRouting.mode` | `"native"` \| `"embedding"` | `"native"` without an embedding model | `native` keeps Pi's original model-selected catalogue; `embedding` enables threshold-based routing |
+| `skillRouting.embeddingModel` | string | - | Embedding model ID. Required to enable routing |
+| `skillRouting.provider` | string | Active model provider | Provider to use for the embeddings endpoint and authentication |
+| `skillRouting.embeddingBatchSize` | number | `10` | Skill routing entries per embedding request; lower this for provider request limits |
+| `skillRouting.minimumSimilarity` | number | `0.6` | Inclusive cosine-similarity threshold, from `-1` to `1`; all matching skills load |
+
+```json
+{
+  "skillRouting": {
+    "mode": "embedding",
+    "provider": "my-openai-provider",
+    "embeddingModel": "your-embedding-model",
+    "embeddingBatchSize": 10,
+    "minimumSimilarity": 0.6
+  }
+}
+```
+
+Use the following configuration for the native baseline. Keeping the provider and embedding model makes A/B switching a one-field change:
+
+```json
+{
+  "skillRouting": {
+    "mode": "native",
+    "provider": "my-openai-provider",
+    "embeddingModel": "your-embedding-model"
+  }
+}
+```
+
 Arrays support glob patterns and exclusions. Use `!pattern` to exclude. Use `+path` to force-include an exact path and `-path` to force-exclude an exact path.
 
 #### packages

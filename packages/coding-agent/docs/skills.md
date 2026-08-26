@@ -10,6 +10,7 @@ Pi implements the [Agent Skills standard](https://agentskills.io/specification),
 
 - [Locations](#locations)
 - [How Skills Work](#how-skills-work)
+- [Semantic Skill Routing](#semantic-skill-routing)
 - [Skill Commands](#skill-commands)
 - [Skill Structure](#skill-structure)
 - [Frontmatter](#frontmatter)
@@ -69,6 +70,28 @@ For project-level Claude Code skills, add to `.pi/settings.json`:
 4. The agent follows the instructions, using relative paths to reference scripts and assets
 
 This is progressive disclosure: only descriptions are always in context, full instructions load on-demand.
+
+## Semantic Skill Routing
+
+Pi has two routing modes that use the same discovered skills. `native` keeps the full skill catalogue in the system prompt, where the chat model can read a matching `SKILL.md`. `embedding` embeds one compact routing entry for each visible skill: its description plus optional author-maintained `metadata.routing.use_cases` and `metadata.routing.tags`. Every skill whose score meets `minimumSimilarity` is injected with its complete body before the chat model starts. There is no Top-K limit, so one compound request can load every relevant skill. In embedding mode, Pi omits the full skill catalogue from the system prompt; queries below the threshold proceed without an automatically loaded skill.
+
+The endpoint and credentials come from the selected provider in `models.json`. Set `skillRouting.provider` to keep routing on one provider when switching chat models; otherwise Pi uses the active model's provider. Routing entries are requested in batches of 10 by default; set `skillRouting.embeddingBatchSize` for a stricter provider limit. Each embedding request times out after 30 seconds. `disable-model-invocation: true` skills remain manual-only. `/skill:name` always forces a skill to load.
+
+```json
+{
+  "skillRouting": {
+    "mode": "embedding",
+    "provider": "my-openai-provider",
+    "embeddingModel": "your-embedding-model",
+    "embeddingBatchSize": 10,
+    "minimumSimilarity": 0.6
+  }
+}
+```
+
+For the native baseline, keep the same skills and chat model but set `"mode": "native"`. The embedding fields may remain in the file so switching back only changes this one value.
+
+For an 80-skill public-metadata corpus and a threshold-routing benchmark, see [skill-routing-benchmark.md](skill-routing-benchmark.md).
 
 ## Skill Commands
 
@@ -147,6 +170,29 @@ Per the [Agent Skills specification](https://agentskills.io/specification#frontm
 | `metadata` | No | Arbitrary key-value mapping. |
 | `allowed-tools` | No | Space-delimited list of pre-approved tools (experimental). |
 | `disable-model-invocation` | No | When `true`, skill is hidden from system prompt. Users must use `/skill:name`. |
+
+#### Embedding Routing Metadata
+
+Embedding routing has one input per skill. It always includes `name` and `description`; authors can add a few discriminative use cases and concrete tags under `metadata.routing`. This metadata is not generated and does not change a skill's instructions. The router does not embed Markdown body sections, code blocks, examples, or procedural branches, because they created false positives in threshold routing.
+
+```yaml
+---
+name: figma-implement-design
+description: Translate supplied Figma designs into production UI code.
+metadata:
+  routing:
+    use_cases:
+      - Implement a supplied Figma file as a responsive React page.
+      - Match Figma variables, spacing, and component states in existing code.
+    tags:
+      - Figma
+      - design file
+      - React
+      - responsive UI
+---
+```
+
+Use cases should be short user-task statements. Tags should name concrete platforms, artifacts, entities, or output types. Do not add negated natural-language exclusions: vector similarity does not implement logical negation reliably. A match injects the complete `SKILL.md`, including its code blocks and references, before the first chat-model request.
 
 ### Name Rules
 

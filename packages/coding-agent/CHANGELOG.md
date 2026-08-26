@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added selectable native and embedding-based skill routing. Embedding routing independently scores prose segments from each `SKILL.md` and directly injects matching skill bodies without a model tool call.
+
 ### Fixed
 
 - Fixed user message transcript rendering to preserve user-authored ordered-list markers ([#5013](https://github.com/earendil-works/pi/issues/5013)).

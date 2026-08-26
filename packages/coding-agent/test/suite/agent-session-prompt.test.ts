@@ -190,6 +190,198 @@ describe("AgentSession prompt characterization", () => {
 		expect(expandedPrompt).toContain("explain this");
 	});
 
+	it("keeps the native skill catalogue as an embedding-free baseline", async () => {
+		const tempDir = join(tmpdir(), `pi-skill-native-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		mkdirSync(tempDir, { recursive: true });
+		tempDirs.push(tempDir);
+		const skillPath = join(tempDir, "review", "SKILL.md");
+		mkdirSync(join(tempDir, "review"), { recursive: true });
+		writeFileSync(skillPath, "# Review\n\nInspect the change carefully.");
+
+		const resourceLoader = {
+			...createTestResourceLoader(),
+			getSkills: () => ({
+				skills: [
+					{
+						name: "review",
+						description: "Review a code change for correctness.",
+						filePath: skillPath,
+						disableModelInvocation: false,
+						baseDir: join(tempDir, "review"),
+						sourceInfo: createSyntheticSourceInfo(skillPath, { source: "local" }),
+					},
+				],
+				diagnostics: [],
+			}),
+		};
+		const harness = await createHarness({
+			resourceLoader,
+			settings: { skillRouting: { mode: "native", embeddingModel: "text-embedding-test" } },
+		});
+		harnesses.push(harness);
+		const originalFetch = globalThis.fetch;
+		let fetchCalls = 0;
+		globalThis.fetch = async () => {
+			fetchCalls++;
+			throw new Error("Native mode must not call the embedding endpoint");
+		};
+
+		try {
+			harness.setResponses([fauxAssistantMessage("ok")]);
+			await harness.session.prompt("Please review this change");
+
+			expect(harness.session.systemPrompt).toContain("<available_skills>");
+			expect(harness.session.systemPrompt).toContain("Review a code change for correctness.");
+			expect(getMessageText(harness.session.messages[0]!)).toBe("Please review this change");
+			expect(fetchCalls).toBe(0);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("auto-loads the closest skill when its embedding score meets the configured threshold", async () => {
+		const tempDir = join(tmpdir(), `pi-skill-routing-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		mkdirSync(tempDir, { recursive: true });
+		tempDirs.push(tempDir);
+		const matchingSkillPath = join(tempDir, "review", "SKILL.md");
+		const otherSkillPath = join(tempDir, "release", "SKILL.md");
+		mkdirSync(join(tempDir, "review"), { recursive: true });
+		mkdirSync(join(tempDir, "release"), { recursive: true });
+		writeFileSync(matchingSkillPath, "# Review\n\nInspect the change carefully.");
+		writeFileSync(otherSkillPath, "# Release\n\nPublish the package.");
+
+		const resourceLoader = {
+			...createTestResourceLoader(),
+			getSkills: () => ({
+				skills: [
+					{
+						name: "review",
+						description: "Review a code change for correctness.",
+						routing: { useCases: ["Inspect code changes for defects."], tags: ["code review"] },
+						filePath: matchingSkillPath,
+						disableModelInvocation: false,
+						baseDir: join(tempDir, "review"),
+						sourceInfo: createSyntheticSourceInfo(matchingSkillPath, { source: "local" }),
+					},
+					{
+						name: "release",
+						description: "Publish a package release.",
+						routing: { useCases: ["Publish a package release."], tags: ["release"] },
+						filePath: otherSkillPath,
+						disableModelInvocation: false,
+						baseDir: join(tempDir, "release"),
+						sourceInfo: createSyntheticSourceInfo(otherSkillPath, { source: "local" }),
+					},
+				],
+				diagnostics: [],
+			}),
+		};
+		const harness = await createHarness({
+			resourceLoader,
+			settings: {
+				skillRouting: { mode: "embedding", embeddingModel: "text-embedding-test", minimumSimilarity: 0.8 },
+			},
+		});
+		harnesses.push(harness);
+		const requestSizes: number[] = [];
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = async (_input, init) => {
+			const body = JSON.parse(String(init?.body)) as { input: string[] };
+			requestSizes.push(body.input.length);
+			return new Response(
+				JSON.stringify({
+					data: body.input.map((entry, index) => ({
+						index,
+						embedding: entry.includes("release") ? [0, 1] : [1, 0],
+					})),
+				}),
+			);
+		};
+
+		try {
+			let firstPrompt = "";
+			harness.setResponses([
+				(context) => {
+					const user = context.messages.find((message) => message.role === "user");
+					firstPrompt = user ? getMessageText(user) : "";
+					return fauxAssistantMessage("ok");
+				},
+			]);
+
+			await harness.session.prompt("Please review this change");
+			await harness.session.prompt("Review the next change");
+
+			expect(firstPrompt).toContain('<skill name="review" location="');
+			expect(firstPrompt).toContain("Inspect the change carefully.");
+			expect(firstPrompt).toContain("Please review this change");
+			expect(requestSizes).toEqual([1, 2, 1]);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("does not auto-load a skill below the configured similarity threshold", async () => {
+		const tempDir = join(tmpdir(), `pi-skill-routing-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		mkdirSync(tempDir, { recursive: true });
+		tempDirs.push(tempDir);
+		const skillPath = join(tempDir, "release", "SKILL.md");
+		mkdirSync(join(tempDir, "release"), { recursive: true });
+		writeFileSync(skillPath, "# Release\n\nPublish the package.");
+
+		const resourceLoader = {
+			...createTestResourceLoader(),
+			getSkills: () => ({
+				skills: [
+					{
+						name: "release",
+						description: "Publish a package release.",
+						filePath: skillPath,
+						disableModelInvocation: false,
+						baseDir: join(tempDir, "release"),
+						sourceInfo: createSyntheticSourceInfo(skillPath, { source: "local" }),
+					},
+				],
+				diagnostics: [],
+			}),
+		};
+		const harness = await createHarness({
+			resourceLoader,
+			settings: {
+				skillRouting: { mode: "embedding", embeddingModel: "text-embedding-test", minimumSimilarity: 0.9 },
+			},
+		});
+		harnesses.push(harness);
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = async (_input, init) => {
+			const body = JSON.parse(String(init?.body)) as { input: string[] };
+			return new Response(
+				JSON.stringify({
+					data: body.input.map((entry, index) => ({
+						index,
+						embedding: entry.includes("release") ? [0.8, 0.6] : [1, 0],
+					})),
+				}),
+			);
+		};
+
+		try {
+			let prompt = "";
+			harness.setResponses([
+				(context) => {
+					const user = context.messages.find((message) => message.role === "user");
+					prompt = user ? getMessageText(user) : "";
+					return fauxAssistantMessage("ok");
+				},
+			]);
+
+			await harness.session.prompt("Review this change");
+
+			expect(prompt).toBe("Review this change");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
 	it("expands prompt templates before sending the prompt", async () => {
 		const template: PromptTemplate = {
 			name: "review",

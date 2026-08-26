@@ -2,7 +2,13 @@ import { homedir } from "os";
 import { join, resolve } from "path";
 import { describe, expect, it } from "vitest";
 import type { ResourceDiagnostic } from "../src/core/diagnostics.ts";
-import { formatSkillsForPrompt, loadSkills, loadSkillsFromDir, type Skill } from "../src/core/skills.ts";
+import {
+	buildSkillRoutingInput,
+	formatSkillsForPrompt,
+	loadSkills,
+	loadSkillsFromDir,
+	type Skill,
+} from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 
 const fixturesDir = resolve(__dirname, "fixtures/skills");
@@ -208,6 +214,37 @@ describe("skills", () => {
 			expect(diagnostics.some((d: ResourceDiagnostic) => d.message.includes("unknown frontmatter field"))).toBe(
 				false,
 			);
+		});
+
+		it("should read author-maintained routing metadata", () => {
+			const { skills, diagnostics } = loadSkillsFromDir({
+				dir: join(fixturesDir, "body-routing"),
+				source: "test",
+			});
+
+			expect(skills).toHaveLength(1);
+			expect(skills[0].routing).toEqual({
+				useCases: ["Diagnose and repair failed GitHub Actions workflows."],
+				tags: ["CI", "GitHub Actions"],
+			});
+			expect(buildSkillRoutingInput(skills[0]!)).toBe(
+				"Skill: body-routing\nDescription: Repair CI workflows and investigate failed jobs.\nUse cases:\n- Diagnose and repair failed GitHub Actions workflows.\nTags: CI, GitHub Actions",
+			);
+			expect(diagnostics).toHaveLength(0);
+		});
+
+		it("should warn and fall back to description when routing metadata is malformed", () => {
+			const { skills, diagnostics } = loadSkillsFromDir({
+				dir: join(fixturesDir, "invalid-routing-metadata"),
+				source: "test",
+			});
+
+			expect(skills).toHaveLength(1);
+			expect(skills[0].routing).toBeUndefined();
+			expect(buildSkillRoutingInput(skills[0]!)).toBe(
+				"Skill: invalid-routing-metadata\nDescription: A skill with invalid routing metadata.",
+			);
+			expect(diagnostics.some((diagnostic) => diagnostic.message.includes("metadata.routing.tags"))).toBe(true);
 		});
 
 		it("should default disableModelInvocation to false when not specified", () => {
