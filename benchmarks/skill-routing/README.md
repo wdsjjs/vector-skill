@@ -10,7 +10,7 @@ The corpus combines metadata from these public repositories with eight common en
 - [anthropics/skills](https://github.com/anthropics/skills)
 - [obra/superpowers](https://github.com/obra/superpowers)
 
-The fixture is at `test/fixtures/skill-routing-benchmark.json`. Each item has a stable source-qualified identifier, description, and trigger prompt. Compound cases verify that threshold routing can select more than one skill.
+The dataset is at `datasets/public-descriptions.json`. Each item has a stable source-qualified identifier, description, and trigger prompt. Compound cases verify that threshold routing can select more than one skill.
 
 ## Run
 
@@ -20,7 +20,7 @@ Provide an OpenAI-compatible embeddings endpoint through environment variables. 
 PI_SKILL_ROUTING_BENCHMARK_BASE_URL=https://example.com/v1 \
 PI_SKILL_ROUTING_BENCHMARK_MODEL=your-embedding-model \
 PI_SKILL_ROUTING_BENCHMARK_API_KEY=your-key \
-node --experimental-strip-types scripts/benchmark-skill-routing.ts
+node --experimental-strip-types benchmarks/skill-routing/run.ts
 ```
 
 `PI_SKILL_ROUTING_BENCHMARK_THRESHOLD` defaults to `0.6`.
@@ -29,19 +29,19 @@ The production router batches compact skill routing entries in groups of 10 by d
 The default corpus has only descriptions. Run the owned Chinese metadata corpus twice to compare the same queries with and without author-maintained fields:
 
 ```bash
-PI_SKILL_ROUTING_BENCHMARK_DATASET=test/fixtures/skill-routing-metadata-benchmark.json \
+PI_SKILL_ROUTING_BENCHMARK_DATASET=benchmarks/skill-routing/datasets/chinese-metadata.json \
 PI_SKILL_ROUTING_BENCHMARK_ROUTING=description \
 PI_SKILL_ROUTING_BENCHMARK_BASE_URL=https://example.com/v1 \
 PI_SKILL_ROUTING_BENCHMARK_MODEL=your-embedding-model \
 PI_SKILL_ROUTING_BENCHMARK_API_KEY=your-key \
-node --experimental-strip-types scripts/benchmark-skill-routing.ts
+node --experimental-strip-types benchmarks/skill-routing/run.ts
 
-PI_SKILL_ROUTING_BENCHMARK_DATASET=test/fixtures/skill-routing-metadata-benchmark.json \
+PI_SKILL_ROUTING_BENCHMARK_DATASET=benchmarks/skill-routing/datasets/chinese-metadata.json \
 PI_SKILL_ROUTING_BENCHMARK_ROUTING=metadata \
 PI_SKILL_ROUTING_BENCHMARK_BASE_URL=https://example.com/v1 \
 PI_SKILL_ROUTING_BENCHMARK_MODEL=your-embedding-model \
 PI_SKILL_ROUTING_BENCHMARK_API_KEY=your-key \
-node --experimental-strip-types scripts/benchmark-skill-routing.ts
+node --experimental-strip-types benchmarks/skill-routing/run.ts
 ```
 
 `PI_SKILL_ROUTING_BENCHMARK_ROUTING` defaults to `metadata`; `description` ignores the fixture's routing fields. This is a retrieval evaluation of the authored catalogue, not a claim about all third-party Skills.

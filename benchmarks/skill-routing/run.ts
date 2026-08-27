@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { SkillRouter } from "../src/core/skill-router.ts";
-import { type Skill, formatSkillsForPrompt } from "../src/core/skills.ts";
-import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
+import { SkillRouter } from "../../packages/coding-agent/src/core/skill-router.ts";
+import { type Skill, formatSkillsForPrompt } from "../../packages/coding-agent/src/core/skills.ts";
+import { createSyntheticSourceInfo } from "../../packages/coding-agent/src/core/source-info.ts";
 
 interface BenchmarkSkill {
 	id: string;
@@ -239,7 +239,7 @@ function chunkValues<Value>(values: Value[], size: number): Value[][] {
 
 const datasetPath = resolve(
 	process.cwd(),
-	process.env.PI_SKILL_ROUTING_BENCHMARK_DATASET ?? "test/fixtures/skill-routing-benchmark.json",
+	process.env.PI_SKILL_ROUTING_BENCHMARK_DATASET ?? "benchmarks/skill-routing/datasets/public-descriptions.json",
 );
 const dataset = parseDataset(JSON.parse(readFileSync(datasetPath, "utf-8")));
 const threshold = getThreshold();

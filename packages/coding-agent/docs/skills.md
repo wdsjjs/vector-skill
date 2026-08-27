@@ -91,7 +91,7 @@ The endpoint and credentials come from the selected provider in `models.json`. S
 
 For the native baseline, keep the same skills and chat model but set `"mode": "native"`. The embedding fields may remain in the file so switching back only changes this one value.
 
-For an 80-skill public-metadata corpus and a threshold-routing benchmark, see [skill-routing-benchmark.md](skill-routing-benchmark.md).
+For an 80-skill public-metadata corpus and a threshold-routing benchmark, see [the benchmark directory](../../../benchmarks/skill-routing/).
 
 ## Skill Commands
 

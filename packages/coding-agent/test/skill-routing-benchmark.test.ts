@@ -24,9 +24,12 @@ interface BenchmarkDataset {
 	compoundCases: CompoundCase[];
 }
 
-const fixturePath = resolve(import.meta.dirname, "fixtures/skill-routing-benchmark.json");
+const fixturePath = resolve(import.meta.dirname, "../../../benchmarks/skill-routing/datasets/public-descriptions.json");
 const benchmark = JSON.parse(readFileSync(fixturePath, "utf-8")) as BenchmarkDataset;
-const metadataFixturePath = resolve(import.meta.dirname, "fixtures/skill-routing-metadata-benchmark.json");
+const metadataFixturePath = resolve(
+	import.meta.dirname,
+	"../../../benchmarks/skill-routing/datasets/chinese-metadata.json",
+);
 const metadataBenchmark = JSON.parse(readFileSync(metadataFixturePath, "utf-8")) as BenchmarkDataset;
 
 describe("skill routing benchmark corpus", () => {

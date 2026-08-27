@@ -103,7 +103,7 @@ metadata:
 
 ## 复跑
 
-Fixture 位于 [`packages/coding-agent/test/fixtures`](packages/coding-agent/test/fixtures)，benchmark runner 位于 [`packages/coding-agent/scripts/benchmark-skill-routing.ts`](packages/coding-agent/scripts/benchmark-skill-routing.ts)。命令、输入模式和结果 schema 见 [`packages/coding-agent/docs/skill-routing-benchmark.md`](packages/coding-agent/docs/skill-routing-benchmark.md)。
+数据集、runner、命令、输入模式和结果 schema 均位于 [`benchmarks/skill-routing`](benchmarks/skill-routing)。
 
 仅通过环境变量提供 endpoint 和凭据，不要将凭据加入仓库文件或 fixture。
 

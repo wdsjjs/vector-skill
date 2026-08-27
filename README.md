@@ -103,7 +103,7 @@ On the same 12-Skill fixture, a chat-model selection baseline returned 100% prec
 
 ## Reproduce
 
-Fixtures are in [`packages/coding-agent/test/fixtures`](packages/coding-agent/test/fixtures). The benchmark runner is [`packages/coding-agent/scripts/benchmark-skill-routing.ts`](packages/coding-agent/scripts/benchmark-skill-routing.ts). Commands, input modes, and result schema are documented in [`packages/coding-agent/docs/skill-routing-benchmark.md`](packages/coding-agent/docs/skill-routing-benchmark.md).
+Datasets, runner, commands, input modes, and result schema are in [`benchmarks/skill-routing`](benchmarks/skill-routing).
 
 Provide endpoints and credentials through environment variables only. Do not add credentials to repository files or fixtures.
 
