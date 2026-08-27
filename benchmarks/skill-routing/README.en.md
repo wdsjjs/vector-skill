@@ -1,5 +1,7 @@
 # Skill Routing Benchmark
 
+> [简体中文](README.md) | [English](README.en.md)
+
 This benchmark evaluates embedding retrieval, not an end-to-end agent's final task quality. It uses 80 skill labels with descriptions and trigger prompts, plus eight compound prompts that expect multiple skills. The corpus deliberately includes public descriptions only: it does not redistribute third-party `SKILL.md` instructions or invent author-maintained routing metadata.
 
 ## Corpus

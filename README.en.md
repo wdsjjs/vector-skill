@@ -1,6 +1,6 @@
 # Victory Skill
 
-> [English](README.md) | [简体中文](README.zh-CN.md)
+> [简体中文](README.md) | [English](README.en.md)
 
 Victory Skill is an experimental Skill router that deterministically selects relevant Skills before the first chat-model request, then injects their complete `SKILL.md` bodies directly.
 

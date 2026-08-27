@@ -1,6 +1,6 @@
 # Victory Skill
 
-> [English](README.md) | [简体中文](README.zh-CN.md)
+> [简体中文](README.md) | [English](README.en.md)
 
 Victory Skill 是一个实验性的 Skill 路由器：在第一次聊天模型请求之前，以确定性方式选出相关 Skill，并直接注入完整 `SKILL.md` 正文。
 
