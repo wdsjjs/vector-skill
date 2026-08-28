@@ -15,23 +15,36 @@ interface BenchmarkSkill {
 	triggerPrompt: string;
 }
 
-interface CompoundCase {
+interface BenchmarkCase {
 	id: string;
 	prompt: string;
 	expected: string[];
+	slice: string;
 }
 
 interface BenchmarkDataset {
 	version: number;
 	sources: Record<string, string>;
 	skills: BenchmarkSkill[];
-	compoundCases: CompoundCase[];
+	compoundCases: BenchmarkCase[];
+	robustCases?: BenchmarkCase[];
 }
 
-interface BenchmarkCase {
+interface CaseResult {
 	id: string;
-	prompt: string;
+	slice: string;
 	expected: string[];
+	matched: Array<{ id: string; score: number }>;
+}
+
+interface RetrievalMetrics {
+	cases: number;
+	retrievalRecall: number;
+	retrievalPrecision: number;
+	abstentionAccuracy: number | undefined;
+	averageCandidates: number;
+	maximumCandidates: number;
+	zeroMatchCases: number;
 }
 
 function asRecord(value: unknown, message: string): Record<string, unknown> {
@@ -61,6 +74,25 @@ function parseRoutingMetadata(value: unknown, message: string): BenchmarkSkill["
 	return { useCases: parseList("useCases"), tags: parseList("tags") };
 }
 
+function parseCases(value: unknown, message: string, defaultSlice: string): BenchmarkCase[] {
+	if (!Array.isArray(value)) throw new Error(`${message} must be a list`);
+	return value.map((value, index) => {
+		const testCase = asRecord(value, `${message} case ${index} must be an object`);
+		if (!Array.isArray(testCase.expected) || testCase.expected.some((id) => typeof id !== "string" || id.length === 0)) {
+			throw new Error(`Invalid expected labels at ${message} case ${index}`);
+		}
+		return {
+			id: asNonEmptyString(testCase.id, `Invalid case id at ${message} case ${index}`),
+			prompt: asNonEmptyString(testCase.prompt, `Invalid prompt at ${message} case ${index}`),
+			expected: [...testCase.expected],
+			slice:
+				testCase.slice === undefined
+					? defaultSlice
+					: asNonEmptyString(testCase.slice, `Invalid slice at ${message} case ${index}`),
+		};
+	});
+}
+
 function parseDataset(value: unknown): BenchmarkDataset {
 	const dataset = asRecord(value, "Benchmark dataset must be an object");
 	if (dataset.version !== 1) throw new Error("Unsupported benchmark dataset version");
@@ -83,19 +115,23 @@ function parseDataset(value: unknown): BenchmarkDataset {
 		triggerPrompt: asNonEmptyString(skill.triggerPrompt, `Invalid skill triggerPrompt at index ${index}`),
 		};
 	});
-	const compoundCases = dataset.compoundCases.map((value, index) => {
-		const testCase = asRecord(value, `Invalid compound case at index ${index}`);
-		if (!Array.isArray(testCase.expected) || testCase.expected.some((id) => typeof id !== "string" || id.length === 0)) {
-			throw new Error(`Invalid compound case expected labels at index ${index}`);
+	const compoundCases = parseCases(dataset.compoundCases, "compoundCases", "compound");
+	const robustCases = dataset.robustCases === undefined ? undefined : parseCases(dataset.robustCases, "robustCases", "semantic-paraphrase");
+	const skillIds = new Set<string>();
+	for (const skill of skills) {
+		if (skillIds.has(skill.id)) throw new Error(`Duplicate skill id: ${skill.id}`);
+		skillIds.add(skill.id);
+	}
+	const caseIds = new Set<string>();
+	for (const testCase of [...compoundCases, ...(robustCases ?? [])]) {
+		if (caseIds.has(testCase.id)) throw new Error(`Duplicate case id: ${testCase.id}`);
+		caseIds.add(testCase.id);
+		for (const expectedId of testCase.expected) {
+			if (!skillIds.has(expectedId)) throw new Error(`Case ${testCase.id} refers to unknown skill: ${expectedId}`);
 		}
-		return {
-			id: asNonEmptyString(testCase.id, `Invalid compound case id at index ${index}`),
-			prompt: asNonEmptyString(testCase.prompt, `Invalid compound case prompt at index ${index}`),
-			expected: [...testCase.expected],
-		};
-	});
+	}
 
-	return { version: 1, sources, skills, compoundCases };
+	return { version: 1, sources, skills, compoundCases, robustCases };
 }
 
 function getRequiredEnvironment(name: string): string {
@@ -133,6 +169,47 @@ function getPositiveIntegerEnvironment(name: string, defaultValue: number): numb
 		throw new Error(`${name} must be a positive integer`);
 	}
 	return value;
+}
+
+function getMetrics(results: CaseResult[]): RetrievalMetrics {
+	let expectedCount = 0;
+	let selectedCount = 0;
+	let truePositiveCount = 0;
+	let zeroMatchCases = 0;
+	let maximumCandidates = 0;
+	let abstentionCases = 0;
+	let correctAbstentions = 0;
+	for (const result of results) {
+		const matchedIds = new Set(result.matched.map((match) => match.id));
+		expectedCount += result.expected.length;
+		selectedCount += result.matched.length;
+		truePositiveCount += result.expected.filter((id) => matchedIds.has(id)).length;
+		maximumCandidates = Math.max(maximumCandidates, result.matched.length);
+		if (result.matched.length === 0) zeroMatchCases++;
+		if (result.expected.length === 0) {
+			abstentionCases++;
+			if (result.matched.length === 0) correctAbstentions++;
+		}
+	}
+	return {
+		cases: results.length,
+		retrievalRecall: expectedCount === 0 ? 0 : truePositiveCount / expectedCount,
+		retrievalPrecision: selectedCount === 0 ? 0 : truePositiveCount / selectedCount,
+		abstentionAccuracy: abstentionCases === 0 ? undefined : correctAbstentions / abstentionCases,
+		averageCandidates: results.length === 0 ? 0 : selectedCount / results.length,
+		maximumCandidates,
+		zeroMatchCases,
+	};
+}
+
+function groupMetricsBySlice(results: CaseResult[]): Record<string, RetrievalMetrics> {
+	const groups = new Map<string, CaseResult[]>();
+	for (const result of results) {
+		const group = groups.get(result.slice) ?? [];
+		group.push(result);
+		groups.set(result.slice, group);
+	}
+	return Object.fromEntries([...groups.entries()].map(([slice, sliceResults]) => [slice, getMetrics(sliceResults)]));
 }
 
 function parseNativeSkillSelections(
@@ -257,8 +334,9 @@ const skills: Skill[] = dataset.skills.map((skill) => {
 	};
 });
 const benchmarkCases: BenchmarkCase[] = [
-	...dataset.skills.map((skill) => ({ id: skill.id, prompt: skill.triggerPrompt, expected: [skill.id] })),
+	...dataset.skills.map((skill) => ({ id: skill.id, prompt: skill.triggerPrompt, expected: [skill.id], slice: "catalogue-smoke" })),
 	...dataset.compoundCases,
+	...(dataset.robustCases ?? []),
 ];
 
 const router = new SkillRouter();
@@ -269,40 +347,33 @@ const nativeChatModel = getOptionalEnvironment("PI_SKILL_ROUTING_BENCHMARK_CHAT_
 const requestTimeoutMs = getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMARK_TIMEOUT_MS", 30000);
 const nativeConcurrency = getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMARK_NATIVE_CONCURRENCY", 2);
 const nativeCaseBatchSize = getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMARK_NATIVE_CASE_BATCH_SIZE", 8);
+const embeddingConcurrency = getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMARK_EMBEDDING_CONCURRENCY", 4);
 const nativeCatalogue = formatSkillsForPrompt(skills);
 const availableIds = new Set(skills.map((skill) => skill.name));
-let selectedCount = 0;
-let expectedCount = 0;
-let truePositiveCount = 0;
-let zeroMatchCases = 0;
-let maximumCandidates = 0;
-const caseResults: Array<{
-	id: string;
-	expected: string[];
-	matched: Array<{ id: string; score: number }>;
-}> = [];
 const embeddingStartedAt = performance.now();
 
-for (const benchmarkCase of benchmarkCases) {
-	const matches = await router.route(benchmarkCase.prompt, skills, { baseUrl, model, apiKey }, threshold);
-	const matched = matches.map((match) => ({ id: match.skill.name, score: match.score }));
-	const matchedIds = new Set(matched.map((match) => match.id));
-	const truePositives = benchmarkCase.expected.filter((id) => matchedIds.has(id)).length;
-	selectedCount += matched.length;
-	expectedCount += benchmarkCase.expected.length;
-	truePositiveCount += truePositives;
-	maximumCandidates = Math.max(maximumCandidates, matched.length);
-	if (matched.length === 0) zeroMatchCases++;
-	caseResults.push({ id: benchmarkCase.id, expected: benchmarkCase.expected, matched });
-}
+const routeCase = async (benchmarkCase: BenchmarkCase): Promise<CaseResult> => {
+	const matches = await router.route(benchmarkCase.prompt, skills, { baseUrl, model, apiKey, timeoutMs: requestTimeoutMs }, threshold);
+	return {
+		id: benchmarkCase.id,
+		slice: benchmarkCase.slice,
+		expected: benchmarkCase.expected,
+		matched: matches.map((match) => ({ id: match.skill.name, score: match.score })),
+	};
+};
+const firstCase = benchmarkCases[0];
+if (!firstCase) throw new Error("Benchmark dataset has no cases");
+const caseResults = [
+	await routeCase(firstCase),
+	...(await mapWithConcurrency(benchmarkCases.slice(1), embeddingConcurrency, routeCase)),
+];
 const embeddingDurationMs = performance.now() - embeddingStartedAt;
+const embeddingMetrics = getMetrics(caseResults);
 
 let nativeSelectionBaseline:
 	| {
-			retrievalRecall: number;
-			retrievalPrecision: number;
-			averageCandidates: number;
-			zeroMatchCases: number;
+			overall: RetrievalMetrics;
+			bySlice: Record<string, RetrievalMetrics>;
 			durationMs: number;
 	  }
 	| undefined;
@@ -320,21 +391,15 @@ if (nativeChatModel) {
 			);
 		})
 	).flat();
-	let nativeSelectedCount = 0;
-	let nativeTruePositiveCount = 0;
-	let nativeZeroMatchCases = 0;
-	for (const [index, benchmarkCase] of benchmarkCases.entries()) {
-		const selected = nativeSelections[index]!;
-		const selectedIds = new Set(selected);
-		nativeSelectedCount += selected.length;
-		nativeTruePositiveCount += benchmarkCase.expected.filter((id) => selectedIds.has(id)).length;
-		if (selected.length === 0) nativeZeroMatchCases++;
-	}
+	const nativeResults = benchmarkCases.map((benchmarkCase, index) => ({
+		id: benchmarkCase.id,
+		slice: benchmarkCase.slice,
+		expected: benchmarkCase.expected,
+		matched: nativeSelections[index]!.map((id) => ({ id, score: 1 })),
+	}));
 	nativeSelectionBaseline = {
-		retrievalRecall: expectedCount === 0 ? 0 : nativeTruePositiveCount / expectedCount,
-		retrievalPrecision: nativeSelectedCount === 0 ? 0 : nativeTruePositiveCount / nativeSelectedCount,
-		averageCandidates: nativeSelectedCount / benchmarkCases.length,
-		zeroMatchCases: nativeZeroMatchCases,
+		overall: getMetrics(nativeResults),
+		bySlice: groupMetricsBySlice(nativeResults),
 		durationMs: performance.now() - nativeStartedAt,
 	};
 }
@@ -357,11 +422,8 @@ console.log(
 				selection: nativeSelectionBaseline,
 			},
 			embeddingRouting: {
-				retrievalRecall: expectedCount === 0 ? 0 : truePositiveCount / expectedCount,
-				retrievalPrecision: selectedCount === 0 ? 0 : truePositiveCount / selectedCount,
-				averageCandidates: selectedCount / benchmarkCases.length,
-				maximumCandidates,
-				zeroMatchCases,
+				...embeddingMetrics,
+				bySlice: groupMetricsBySlice(caseResults),
 				durationMs: embeddingDurationMs,
 			},
 			caseResults,

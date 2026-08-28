@@ -97,6 +97,12 @@ metadata:
 
 当前实验性起始配置是 `embedding 0.45 -> rerank 0.01`。它不是通用默认值，仍需在更大的真实 query 语料上验证。reranker 首次请求耗时 `1.19s`，在 Apple MPS 上热态处理 5 个候选约为 `101ms`。
 
+### 200 Skill 鲁棒性基准
+
+新的 `mainstream-200.json` 将公开 catalogue 扩充到 200 个 Skill，并以固定上游 commit 记录来源。除了 description-close smoke case，它还包含 50 条人工标注 case：语义改写、近邻消歧、跨语言、格式扰动、组合请求和应拒识请求。
+
+在 `text-embedding-v4` 的 description-only 扫描中，单阈值没有可接受的折中：`0.45` 得到 91.32% 召回但平均注入 29.89 个 Skill、精度 3.14%；`0.60` 将平均候选降至 5.02，却使组合 case 召回降为 18.75%。完整口径、数据源和阈值结果见 [`benchmarks/skill-routing`](benchmarks/skill-routing/README.md)。这证明 rerank 或作者维护 metadata 是扩大 catalogue 后的必要后续工作，而不是可选优化。
+
 ## Native Baseline
 
 同一 12-Skill fixture 上，聊天模型选择 baseline 得到 100% 精度和召回率，耗时 `6.35s`。这只衡量从明确 catalogue 中的显式选择，不是端到端对比，也没有消除原生路径后续的 Skill-read 调用。

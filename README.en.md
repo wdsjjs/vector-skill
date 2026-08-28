@@ -97,6 +97,12 @@ The local `BAAI/bge-reranker-v2-m3` endpoint reranks embedding candidates with q
 
 The current experimental starting point is `embedding 0.45 -> rerank 0.01`. It is not a universal default and needs validation on a larger, real query corpus. The reranker took `1.19s` on its first request and about `101ms` warm for five candidates on Apple MPS.
 
+### 200-Skill Robustness Benchmark
+
+`mainstream-200.json` expands the public catalogue to 200 Skills with pinned upstream commits. Beyond description-close smoke cases, it adds 50 manually labelled cases for semantic paraphrase, near-neighbour disambiguation, multilingual requests, format perturbation, compositions, and abstention.
+
+The `text-embedding-v4` description-only scan found no acceptable global threshold: `0.45` reached 91.32% recall but injected 29.89 Skills on average at 3.14% precision; `0.60` reduced that average to 5.02 but composition recall fell to 18.75%. The full method, sources, and threshold results are in [`benchmarks/skill-routing`](benchmarks/skill-routing/README.en.md). At this catalogue size, reranking or author-maintained metadata is required follow-up work, not an optional refinement.
+
 ## Native Baseline
 
 On the same 12-Skill fixture, a chat-model selection baseline returned 100% precision and recall in `6.35s`. This measures only explicit selection from an unambiguous catalogue; it is not an end-to-end comparison and does not remove the native path's later Skill-read call.
