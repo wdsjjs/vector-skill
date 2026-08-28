@@ -103,6 +103,8 @@ The current experimental starting point is `embedding 0.45 -> rerank 0.01`. It i
 
 The `text-embedding-v4` description-only scan found no acceptable global threshold: `0.45` reached 91.32% recall but injected 29.89 Skills on average at 3.14% precision; `0.60` reduced that average to 5.02 but composition recall fell to 18.75%. The full method, sources, and threshold results are in [`benchmarks/skill-routing`](benchmarks/skill-routing/README.en.md). At this catalogue size, reranking or author-maintained metadata is required follow-up work, not an optional refinement.
 
+The local `BAAI/bge-reranker-v2-m3` was then measured on 58 robustness and compound cases: `0.45 -> rerank 0.01` raises precision from 6.39% to 23.94%, reduces average candidates from 15.10 to 3.24, and reaches 100% abstention. It also drops recall to 69.23% and takes 170.20 seconds on a single MPS instance. This validates the two-stage approach but not the old 12-Skill cutoff as a production setting.
+
 ## Native Baseline
 
 On the same 12-Skill fixture, a chat-model selection baseline returned 100% precision and recall in `6.35s`. This measures only explicit selection from an unambiguous catalogue; it is not an end-to-end comparison and does not remove the native path's later Skill-read call.

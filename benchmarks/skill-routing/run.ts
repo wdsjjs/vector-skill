@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { SkillRouter } from "../../packages/coding-agent/src/core/skill-router.ts";
-import { type Skill, formatSkillsForPrompt } from "../../packages/coding-agent/src/core/skills.ts";
+import { buildSkillRoutingInput, type Skill, formatSkillsForPrompt } from "../../packages/coding-agent/src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../../packages/coding-agent/src/core/source-info.ts";
 
 interface BenchmarkSkill {
@@ -45,6 +45,16 @@ interface RetrievalMetrics {
 	averageCandidates: number;
 	maximumCandidates: number;
 	zeroMatchCases: number;
+}
+
+interface RerankConfig {
+	url: string;
+	cutoff: number;
+	concurrency: number;
+}
+
+interface RerankResponse {
+	results: Array<{ index: number; relevance_score: number }>;
 }
 
 function asRecord(value: unknown, message: string): Record<string, unknown> {
@@ -161,6 +171,17 @@ function getRoutingInputMode(): "description" | "metadata" {
 	return mode;
 }
 
+function getSelectedSlices(): Set<string> | undefined {
+	const value = getOptionalEnvironment("PI_SKILL_ROUTING_BENCHMARK_CASE_SLICES");
+	if (!value) return undefined;
+	const slices = value
+		.split(",")
+		.map((slice) => slice.trim())
+		.filter((slice) => slice.length > 0);
+	if (slices.length === 0) throw new Error("PI_SKILL_ROUTING_BENCHMARK_CASE_SLICES must contain at least one slice");
+	return new Set(slices);
+}
+
 function getPositiveIntegerEnvironment(name: string, defaultValue: number): number {
 	const rawValue = process.env[name];
 	if (rawValue === undefined) return defaultValue;
@@ -169,6 +190,90 @@ function getPositiveIntegerEnvironment(name: string, defaultValue: number): numb
 		throw new Error(`${name} must be a positive integer`);
 	}
 	return value;
+}
+
+function getRerankConfig(): RerankConfig | undefined {
+	const url = getOptionalEnvironment("PI_SKILL_ROUTING_BENCHMARK_RERANK_URL");
+	const cutoffValue = process.env.PI_SKILL_ROUTING_BENCHMARK_RERANK_CUTOFF;
+	if (!url) {
+		if (cutoffValue !== undefined) throw new Error("PI_SKILL_ROUTING_BENCHMARK_RERANK_URL is required when a rerank cutoff is set");
+		return undefined;
+	}
+	const cutoff = Number(cutoffValue ?? "0.01");
+	if (!Number.isFinite(cutoff) || cutoff < 0 || cutoff > 1) {
+		throw new Error("PI_SKILL_ROUTING_BENCHMARK_RERANK_CUTOFF must be between 0 and 1");
+	}
+	return {
+		url,
+		cutoff,
+		concurrency: getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMARK_RERANK_CONCURRENCY", 1),
+	};
+}
+
+function parseRerankResponse(payload: unknown, expectedCount: number): number[] {
+	if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+		throw new Error("Rerank response must be an object");
+	}
+	const results = (payload as { results?: unknown }).results;
+	if (!Array.isArray(results) || results.length !== expectedCount) {
+		throw new Error("Rerank response is missing scores");
+	}
+	const scores: Array<number | undefined> = Array.from({ length: expectedCount });
+	for (const result of results) {
+		if (!result || typeof result !== "object" || Array.isArray(result)) {
+			throw new Error("Rerank response contains an invalid result");
+		}
+		const { index, relevance_score: relevanceScore } = result as { index?: unknown; relevance_score?: unknown };
+		if (
+			!Number.isInteger(index) ||
+			index < 0 ||
+			index >= expectedCount ||
+			typeof relevanceScore !== "number" ||
+			!Number.isFinite(relevanceScore)
+		) {
+			throw new Error("Rerank response contains an invalid score");
+		}
+		scores[index] = relevanceScore;
+	}
+	if (scores.some((score) => score === undefined)) throw new Error("Rerank response is missing document indices");
+	return scores as number[];
+}
+
+async function rerankCase(
+	benchmarkCase: BenchmarkCase,
+	result: CaseResult,
+	skillsById: Map<string, Skill>,
+	config: RerankConfig,
+	timeoutMs: number,
+): Promise<CaseResult> {
+	if (result.matched.length === 0) return result;
+	const candidates = result.matched.map((match) => {
+		const skill = skillsById.get(match.id);
+		if (!skill) throw new Error(`Rerank candidate is not in the catalogue: ${match.id}`);
+		return { id: match.id, input: buildSkillRoutingInput(skill) };
+	});
+	const response = await fetch(config.url, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ query: benchmarkCase.prompt, documents: candidates.map((candidate) => candidate.input) }),
+		signal: AbortSignal.timeout(timeoutMs),
+	});
+	const responseText = await response.text();
+	if (!response.ok) throw new Error(`Rerank request failed (${response.status}): ${responseText}`);
+	let payload: unknown;
+	try {
+		payload = JSON.parse(responseText);
+	} catch {
+		throw new Error("Rerank response returned invalid JSON");
+	}
+	const scores = parseRerankResponse(payload, candidates.length);
+	return {
+		...result,
+		matched: candidates
+			.map((candidate, index) => ({ id: candidate.id, score: scores[index]! }))
+			.filter((candidate) => candidate.score >= config.cutoff)
+			.sort((left, right) => right.score - left.score),
+	};
 }
 
 function getMetrics(results: CaseResult[]): RetrievalMetrics {
@@ -333,11 +438,16 @@ const skills: Skill[] = dataset.skills.map((skill) => {
 		disableModelInvocation: false,
 	};
 });
-const benchmarkCases: BenchmarkCase[] = [
+const allBenchmarkCases: BenchmarkCase[] = [
 	...dataset.skills.map((skill) => ({ id: skill.id, prompt: skill.triggerPrompt, expected: [skill.id], slice: "catalogue-smoke" })),
 	...dataset.compoundCases,
 	...(dataset.robustCases ?? []),
 ];
+const selectedSlices = getSelectedSlices();
+const benchmarkCases = selectedSlices
+	? allBenchmarkCases.filter((benchmarkCase) => selectedSlices.has(benchmarkCase.slice))
+	: allBenchmarkCases;
+if (benchmarkCases.length === 0) throw new Error("No benchmark cases match PI_SKILL_ROUTING_BENCHMARK_CASE_SLICES");
 
 const router = new SkillRouter();
 const baseUrl = getRequiredEnvironment("PI_SKILL_ROUTING_BENCHMARK_BASE_URL");
@@ -348,8 +458,10 @@ const requestTimeoutMs = getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMA
 const nativeConcurrency = getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMARK_NATIVE_CONCURRENCY", 2);
 const nativeCaseBatchSize = getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMARK_NATIVE_CASE_BATCH_SIZE", 8);
 const embeddingConcurrency = getPositiveIntegerEnvironment("PI_SKILL_ROUTING_BENCHMARK_EMBEDDING_CONCURRENCY", 4);
+const rerankConfig = getRerankConfig();
 const nativeCatalogue = formatSkillsForPrompt(skills);
 const availableIds = new Set(skills.map((skill) => skill.name));
+const skillsById = new Map(skills.map((skill) => [skill.name, skill]));
 const embeddingStartedAt = performance.now();
 
 const routeCase = async (benchmarkCase: BenchmarkCase): Promise<CaseResult> => {
@@ -369,6 +481,29 @@ const caseResults = [
 ];
 const embeddingDurationMs = performance.now() - embeddingStartedAt;
 const embeddingMetrics = getMetrics(caseResults);
+
+let rerankRouting:
+	| {
+			cutoff: number;
+			overall: RetrievalMetrics;
+			bySlice: Record<string, RetrievalMetrics>;
+			durationMs: number;
+			caseResults: CaseResult[];
+	  }
+	| undefined;
+if (rerankConfig) {
+	const rerankStartedAt = performance.now();
+	const rerankCaseResults = await mapWithConcurrency(caseResults, rerankConfig.concurrency, async (result, index) =>
+		await rerankCase(benchmarkCases[index]!, result, skillsById, rerankConfig, requestTimeoutMs),
+	);
+	rerankRouting = {
+		cutoff: rerankConfig.cutoff,
+		overall: getMetrics(rerankCaseResults),
+		bySlice: groupMetricsBySlice(rerankCaseResults),
+		durationMs: performance.now() - rerankStartedAt,
+		caseResults: rerankCaseResults,
+	};
+}
 
 let nativeSelectionBaseline:
 	| {
@@ -426,6 +561,7 @@ console.log(
 				bySlice: groupMetricsBySlice(caseResults),
 				durationMs: embeddingDurationMs,
 			},
+			rerankRouting,
 			caseResults,
 		},
 		null,

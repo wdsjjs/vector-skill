@@ -103,6 +103,8 @@ metadata:
 
 在 `text-embedding-v4` 的 description-only 扫描中，单阈值没有可接受的折中：`0.45` 得到 91.32% 召回但平均注入 29.89 个 Skill、精度 3.14%；`0.60` 将平均候选降至 5.02，却使组合 case 召回降为 18.75%。完整口径、数据源和阈值结果见 [`benchmarks/skill-routing`](benchmarks/skill-routing/README.md)。这证明 rerank 或作者维护 metadata 是扩大 catalogue 后的必要后续工作，而不是可选优化。
 
+本地 `BAAI/bge-reranker-v2-m3` 已在其中 58 条鲁棒/复合 case 上复测：`0.45 -> rerank 0.01` 将精度从 6.39% 提升至 23.94%，平均候选从 15.10 降至 3.24，并达到 100% 拒识；代价是召回降为 69.23%、单实例 MPS rerank 耗时 170.20 秒。它证明二阶段筛选有效，但旧 12-Skill fixture 的 cutoff 不能直接作为生产配置，仍需按候选池预算重新校准。
+
 ## Native Baseline
 
 同一 12-Skill fixture 上，聊天模型选择 baseline 得到 100% 精度和召回率，耗时 `6.35s`。这只衡量从明确 catalogue 中的显式选择，不是端到端对比，也没有消除原生路径后续的 Skill-read 调用。

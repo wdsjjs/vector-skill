@@ -67,6 +67,17 @@ node --experimental-strip-types benchmarks/skill-routing/run.ts
 
 `PI_SKILL_ROUTING_BENCHMARK_TIMEOUT_MS` 默认为 `30000`；`PI_SKILL_ROUTING_BENCHMARK_EMBEDDING_CONCURRENCY` 默认为 `4`；`PI_SKILL_ROUTING_BENCHMARK_NATIVE_CONCURRENCY` 默认为 `2`；`PI_SKILL_ROUTING_BENCHMARK_NATIVE_CASE_BATCH_SIZE` 默认为 `8`。embedding runner 先预热 catalogue 向量，再并发测 query；native evaluator 会把多个独立 case 打包进模型请求。进度写到 stderr，stdout 保持机器可读 JSON。
 
+本地 cross-encoder 可作为第二阶段 benchmark，默认不启用，也不改变生产路由器：
+
+```bash
+PI_SKILL_ROUTING_BENCHMARK_RERANK_URL=http://127.0.0.1:8088/v1/rerank \
+PI_SKILL_ROUTING_BENCHMARK_RERANK_CUTOFF=0.01 \
+PI_SKILL_ROUTING_BENCHMARK_CASE_SLICES=compound,semantic-paraphrase,near-neighbor,multilingual,format-perturbation,composition,abstention \
+node --experimental-strip-types benchmarks/skill-routing/run.ts
+```
+
+`PI_SKILL_ROUTING_BENCHMARK_RERANK_CONCURRENCY` 默认 `1`，以匹配本地 MPS 模型的串行锁；`RERANK_CUTOFF` 默认 `0.01`。`CASE_SLICES` 可排除 description-close smoke，只评估同一个 catalogue 上的鲁棒性 query。输出中的 `rerankRouting` 与 `embeddingRouting` 分开记录，避免将两阶段时延混为一谈。
+
 JSON 结果包含：
 
 - `nativeBaseline.catalogueCharacters` 与 `catalogueEstimatedTokens`：相同 80 个 Skill 下 native 完整 catalogue 的固定 prompt 成本。
@@ -92,3 +103,14 @@ native 模式把 Skill 选择交给聊天模型，因此不能从 embedding 检�
 | 0.60 | 65.66% | 13.44% | 5.02 | 87.50% |
 
 没有一个阈值同时满足低注入和高召回。`0.45` 在近邻 case 保留 91.67% 预期标签，但近邻精度仅 4.80%；`0.60` 近邻精度升至 31.58%，但组合 case 召回降至 18.75%，语义改写召回降至 41.67%。因此下一阶段应固定一档低阈值作为第一阶段候选池，再以本地 reranker 或作者维护的 routing metadata 做二次筛选；不能把更高全局阈值当作替代方案。
+
+### 200 Skill 本地 Rerank 初测
+
+在同一 200-Skill catalogue 上，仅选择 50 条鲁棒 case 和 8 条复合 case，`embedding 0.45 -> BAAI/bge-reranker-v2-m3 -> cutoff 0.01` 得到：
+
+| 阶段 | 召回率 | 精度 | 平均候选数 | 拒识准确率 | 耗时 |
+|---|---:|---:|---:|---:|---:|
+| embedding | 86.15% | 6.39% | 15.10 | 75.00% | 12.84s |
+| rerank | 69.23% | 23.94% | 3.24 | 100.00% | 170.20s |
+
+rerank 明显减少了错误注入，也正确拒绝了全部 8 条无关请求；但近邻召回从 91.67% 降至 58.33%，说明旧 12-Skill fixture 的 `0.01` cutoff 不能直接迁移。当前结论是“rerank 有效但未校准”，不是将该 cutoff 设为生产默认值。完整无 cutoff 分数的复跑受本地 MPS 单实例约束影响尚未完成，后续需要先加候选池预算，再在保存的原始分数上离线扫 cutoff。

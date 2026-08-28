@@ -59,6 +59,17 @@ Set `PI_SKILL_ROUTING_BENCHMARK_CHAT_MODEL` to run the optional native-selection
 
 `PI_SKILL_ROUTING_BENCHMARK_TIMEOUT_MS` defaults to `30000`; `PI_SKILL_ROUTING_BENCHMARK_EMBEDDING_CONCURRENCY` defaults to `4`; `PI_SKILL_ROUTING_BENCHMARK_NATIVE_CONCURRENCY` defaults to `2`; and `PI_SKILL_ROUTING_BENCHMARK_NATIVE_CASE_BATCH_SIZE` defaults to `8`. The embedding runner prewarms catalogue vectors before concurrent queries. Progress is written to stderr so stdout remains machine-readable JSON.
 
+An optional local cross-encoder is available for the benchmark only; it does not change the production router:
+
+```bash
+PI_SKILL_ROUTING_BENCHMARK_RERANK_URL=http://127.0.0.1:8088/v1/rerank \
+PI_SKILL_ROUTING_BENCHMARK_RERANK_CUTOFF=0.01 \
+PI_SKILL_ROUTING_BENCHMARK_CASE_SLICES=compound,semantic-paraphrase,near-neighbor,multilingual,format-perturbation,composition,abstention \
+node --experimental-strip-types benchmarks/skill-routing/run.ts
+```
+
+`PI_SKILL_ROUTING_BENCHMARK_RERANK_CONCURRENCY` defaults to `1` for the local MPS model lock, and `RERANK_CUTOFF` defaults to `0.01`. `CASE_SLICES` excludes description-close smoke cases while retaining the same catalogue. `rerankRouting` is reported separately from `embeddingRouting` so the two-stage latency is explicit.
+
 The JSON result reports:
 
 - `nativeBaseline.catalogueCharacters` and `catalogueEstimatedTokens`: the fixed prompt cost of Pi's native full catalogue for the same 80 skills.
@@ -84,3 +95,14 @@ The following local measurements used the Codex-configured UDA endpoint and `tex
 | 0.60 | 65.66% | 13.44% | 5.02 | 87.50% |
 
 No global threshold is an acceptable trade-off. At `0.45`, near-neighbour recall is 91.67% but precision is only 4.80%; at `0.60`, near-neighbour precision reaches 31.58%, while composition recall drops to 18.75% and semantic-paraphrase recall to 41.67%. The next experiment should keep a lower first-stage threshold and apply a local reranker or author-maintained routing metadata. Raising a global threshold is not a substitute.
+
+### 200-Skill Local Rerank Initial Result
+
+On the same 200-Skill catalogue, the 50 robustness and eight compound cases measured `embedding 0.45 -> BAAI/bge-reranker-v2-m3 -> cutoff 0.01`:
+
+| Stage | Recall | Precision | Average candidates | Abstention accuracy | Duration |
+|---|---:|---:|---:|---:|---:|
+| embedding | 86.15% | 6.39% | 15.10 | 75.00% | 12.84s |
+| rerank | 69.23% | 23.94% | 3.24 | 100.00% | 170.20s |
+
+Reranking removes many incorrect injections and rejects all eight out-of-catalogue cases, but near-neighbour recall falls from 91.67% to 58.33%. The prior `0.01` cutoff from the 12-Skill fixture does not transfer. The verified conclusion is that reranking works but is not calibrated; it is not a production-default recommendation.
