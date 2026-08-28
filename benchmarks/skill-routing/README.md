@@ -18,6 +18,8 @@
 
 小基准 `datasets/public-descriptions.json` 保留用于与早期结果对比。主基准为 `datasets/mainstream-200.json`，按固定上游 commit 收集 frontmatter 的 `name` 和 `description`：OpenAI 41、Anthropic 17、Superpowers 14、Vercel 9、Hugging Face 26、Lark 28、Google 57、通用基线 8。
 
+`datasets/mainstream-100.json` 是固定的中间规模子集：先保留复合/鲁棒 case 所需的全部 47 个标签，再按来源补齐为 OpenAI 20、Anthropic 8、Superpowers 7、Vercel 4、Hugging Face 13、Lark 14、Google 27、通用基线 7。它保留与 200-Skill 相同的 58 条复合/鲁棒 case，用于比较 catalogue 大小；不是独立的泛化测试集。
+
 每个 Skill 有一条 description-close smoke prompt，用于检查 catalogue 连接性，不计为鲁棒性结论。额外 50 条人工 case 分成：
 
 - `semantic-paraphrase`：不复述 description 的自然表达。
@@ -114,3 +116,16 @@ native 模式把 Skill 选择交给聊天模型，因此不能从 embedding 检�
 | rerank | 69.23% | 23.94% | 3.24 | 100.00% | 170.20s |
 
 rerank 明显减少了错误注入，也正确拒绝了全部 8 条无关请求；但近邻召回从 91.67% 降至 58.33%，说明旧 12-Skill fixture 的 `0.01` cutoff 不能直接迁移。当前结论是“rerank 有效但未校准”，不是将该 cutoff 设为生产默认值。完整无 cutoff 分数的复跑受本地 MPS 单实例约束影响尚未完成，后续需要先加候选池预算，再在保存的原始分数上离线扫 cutoff。
+
+### 100 Skill 同口径复测
+
+使用同一 UDA `text-embedding-v4`、相同 58 条复合/鲁棒 case、`embedding 0.45 -> BAAI/bge-reranker-v2-m3 -> cutoff 0.01`：
+
+| Catalogue | 阶段 | 召回率 | 精度 | 平均候选数 | 拒识准确率 | 耗时 |
+|---:|---|---:|---:|---:|---:|---:|
+| 100 | embedding | 86.15% | 12.84% | 7.52 | 75.00% | 8.67s |
+| 100 | rerank | 69.23% | 38.79% | 2.00 | 100.00% | 39.29s |
+| 200 | embedding | 86.15% | 6.39% | 15.10 | 75.00% | 12.84s |
+| 200 | rerank | 69.23% | 23.94% | 3.24 | 100.00% | 170.20s |
+
+100 与 200 的 rerank 总召回及近邻召回均相同（69.23% 和 58.33%）。规模变小会降低候选池和 MPS 重排时延，但不能修复 cutoff 对近邻/组合标签的过滤损失；后续仍应保存完整 rerank 分数并离线校准 cutoff。

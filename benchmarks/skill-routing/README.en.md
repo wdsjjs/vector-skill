@@ -18,6 +18,8 @@ The corpus combines metadata from these public repositories with eight common en
 
 `datasets/public-descriptions.json` remains the small comparison corpus. The main corpus is `datasets/mainstream-200.json`, pinned to upstream commits: OpenAI 41, Anthropic 17, Superpowers 14, Vercel 9, Hugging Face 26, Lark 28, Google 57, and eight general engineering baselines.
 
+`datasets/mainstream-100.json` is a fixed intermediate-scale subset. It first retains all 47 labels needed by the compound and robustness cases, then fills by source to OpenAI 20, Anthropic 8, Superpowers 7, Vercel 4, Hugging Face 13, Lark 14, Google 27, and seven general baselines. It retains the same 58 compound and robustness cases as the 200-Skill corpus to compare catalogue size; it is not an independent generalization set.
+
 Every Skill has a description-close smoke prompt for catalogue connectivity only. The 50 manually labelled cases measure semantic paraphrase, near-neighbour disambiguation, multilingual requests, YAML/log/quoted-format perturbation, compositions, and out-of-catalogue abstention. The runner rejects duplicate IDs, unknown labels, and invalid fields; `abstentionAccuracy` is computed only from cases with no expected labels.
 
 ## Run
@@ -106,3 +108,16 @@ On the same 200-Skill catalogue, the 50 robustness and eight compound cases meas
 | rerank | 69.23% | 23.94% | 3.24 | 100.00% | 170.20s |
 
 Reranking removes many incorrect injections and rejects all eight out-of-catalogue cases, but near-neighbour recall falls from 91.67% to 58.33%. The prior `0.01` cutoff from the 12-Skill fixture does not transfer. The verified conclusion is that reranking works but is not calibrated; it is not a production-default recommendation.
+
+### 100-Skill Like-for-Like Repeat
+
+Using the same UDA `text-embedding-v4`, the same 58 compound and robustness cases, and `embedding 0.45 -> BAAI/bge-reranker-v2-m3 -> cutoff 0.01`:
+
+| Catalogue | Stage | Recall | Precision | Average candidates | Abstention accuracy | Duration |
+|---:|---|---:|---:|---:|---:|---:|
+| 100 | embedding | 86.15% | 12.84% | 7.52 | 75.00% | 8.67s |
+| 100 | rerank | 69.23% | 38.79% | 2.00 | 100.00% | 39.29s |
+| 200 | embedding | 86.15% | 6.39% | 15.10 | 75.00% | 12.84s |
+| 200 | rerank | 69.23% | 23.94% | 3.24 | 100.00% | 170.20s |
+
+The 100- and 200-Skill runs have identical rerank overall and near-neighbour recall (69.23% and 58.33%). A smaller catalogue reduces the candidate pool and MPS rerank latency, but cannot repair cutoff losses on near-neighbour or composition labels. The next step remains retaining all rerank scores and calibrating the cutoff offline.

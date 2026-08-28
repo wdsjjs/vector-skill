@@ -22,6 +22,7 @@ interface CompoundCase {
 interface BenchmarkDataset {
 	skills: BenchmarkSkill[];
 	compoundCases: CompoundCase[];
+	robustCases?: CompoundCase[];
 }
 
 const fixturePath = resolve(import.meta.dirname, "../../../benchmarks/skill-routing/datasets/public-descriptions.json");
@@ -31,6 +32,16 @@ const metadataFixturePath = resolve(
 	"../../../benchmarks/skill-routing/datasets/chinese-metadata.json",
 );
 const metadataBenchmark = JSON.parse(readFileSync(metadataFixturePath, "utf-8")) as BenchmarkDataset;
+const mainstream200FixturePath = resolve(
+	import.meta.dirname,
+	"../../../benchmarks/skill-routing/datasets/mainstream-200.json",
+);
+const mainstream200Benchmark = JSON.parse(readFileSync(mainstream200FixturePath, "utf-8")) as BenchmarkDataset;
+const mainstream100FixturePath = resolve(
+	import.meta.dirname,
+	"../../../benchmarks/skill-routing/datasets/mainstream-100.json",
+);
+const mainstream100Benchmark = JSON.parse(readFileSync(mainstream100FixturePath, "utf-8")) as BenchmarkDataset;
 
 describe("skill routing benchmark corpus", () => {
 	it("contains 80 uniquely-labelled skills and valid trigger prompts", () => {
@@ -64,6 +75,33 @@ describe("skill routing benchmark corpus", () => {
 			for (const expected of testCase.expected) {
 				expect(ids.has(expected)).toBe(true);
 			}
+		}
+	});
+
+	it("keeps the 100-Skill subset stratified and preserves all robust labels", () => {
+		expect(mainstream100Benchmark.skills).toHaveLength(100);
+		const sourceCounts = Object.fromEntries(
+			["openai", "anthropic", "superpowers", "baseline", "vercel", "huggingface", "lark", "google"].map((source) => [
+				source,
+				mainstream100Benchmark.skills.filter((skill) => skill.source === source).length,
+			]),
+		);
+		expect(sourceCounts).toEqual({
+			openai: 20,
+			anthropic: 8,
+			superpowers: 7,
+			baseline: 7,
+			vercel: 4,
+			huggingface: 13,
+			lark: 14,
+			google: 27,
+		});
+
+		const ids = new Set(mainstream100Benchmark.skills.map((skill) => skill.id));
+		const sourceIds = new Set(mainstream200Benchmark.skills.map((skill) => skill.id));
+		for (const skill of mainstream100Benchmark.skills) expect(sourceIds.has(skill.id)).toBe(true);
+		for (const testCase of [...mainstream100Benchmark.compoundCases, ...(mainstream100Benchmark.robustCases ?? [])]) {
+			for (const expected of testCase.expected) expect(ids.has(expected)).toBe(true);
 		}
 	});
 });

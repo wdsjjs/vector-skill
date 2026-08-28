@@ -105,6 +105,21 @@ The `text-embedding-v4` description-only scan found no acceptable global thresho
 
 The local `BAAI/bge-reranker-v2-m3` was then measured on 58 robustness and compound cases: `0.45 -> rerank 0.01` raises precision from 6.39% to 23.94%, reduces average candidates from 15.10 to 3.24, and reaches 100% abstention. It also drops recall to 69.23% and takes 170.20 seconds on a single MPS instance. This validates the two-stage approach but not the old 12-Skill cutoff as a production setting.
 
+### 100-Skill Intermediate-Scale Repeat
+
+`mainstream-100.json` is a fixed, source-stratified subset of the 200-Skill catalogue. It retains all 47 labels expected by the compound and robustness cases, then fills to 100 Skills by source. It therefore isolates catalogue-size effects on the same 58 cases, but is not a separate generalization set.
+
+Using the same model and `0.45 -> rerank 0.01` configuration:
+
+| Catalogue | Stage | Recall | Precision | Average candidates | Abstention accuracy | Duration |
+|---:|---|---:|---:|---:|---:|---:|
+| 100 | embedding | 86.15% | 12.84% | 7.52 | 75.00% | 8.67s |
+| 100 | rerank | 69.23% | 38.79% | 2.00 | 100.00% | 39.29s |
+| 200 | embedding | 86.15% | 6.39% | 15.10 | 75.00% | 12.84s |
+| 200 | rerank | 69.23% | 23.94% | 3.24 | 100.00% | 170.20s |
+
+The 100- and 200-Skill rerank runs have identical overall recall and near-neighbour recall (58.33%). The issue with `0.01` is therefore not primarily catalogue size: it over-filters near-neighbour and composition labels. The smaller catalogue lowers candidate volume and local MPS latency, but does not make this cutoff a production default.
+
 ## Native Baseline
 
 On the same 12-Skill fixture, a chat-model selection baseline returned 100% precision and recall in `6.35s`. This measures only explicit selection from an unambiguous catalogue; it is not an end-to-end comparison and does not remove the native path's later Skill-read call.
